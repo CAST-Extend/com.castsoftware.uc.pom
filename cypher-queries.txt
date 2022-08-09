@@ -1,0 +1,34 @@
+//REPLACE APP_LABEL by the application's label in all the following queries
+
+//Clear POM tags
+MATCH (o:APP_LABEL)
+WHERE size([x in o.Tags WHERE x STARTS WITH 'POM: ']) > 0
+SET o.Tags = [x in o.Tags WHERE NOT x STARTS WITH 'POM: '];
+
+//Tag Java Objects - Add 'Pom: groupId.ArtifactId'
+MATCH (p:Object:APP_LABEL)<-[:REFER]-(o:APP_LABEL)
+WHERE p.InternalType = 'POMProject'
+SET o.Tags = CASE WHEN o.Tags IS NULL THEN ['POM: ' + p.FullName] ELSE [x in o.Tags WHERE x <> ('POM: ' + p.FullName)] + ('POM: ' + p.FullName) END;
+
+//Delete previous escalated links between 'PomProject' Objects
+MATCH (pcaller:Object:APP_LABEL)-[l:References]->(pcalled:Object:APP_LABEL)
+WHERE pcaller.InternalType = 'POMProject'
+AND pcalled.InternalType = 'POMProject'
+DETACH DELETE l;
+
+//Create escalated links between 'PomProject' objects (except aipLinkType property)
+MATCH (pcaller:Object:APP_LABEL)<-[:REFER]-(ocaller:APP_LABEL)-[l]->(ocalled:APP_LABEL)-[:REFER]->(pcalled:Object:APP_LABEL)
+WHERE pcaller.InternalType = 'POMProject'
+AND pcalled.InternalType = 'POMProject'
+AND pcaller <> pcalled
+AND type(l) <> 'References'
+WITH pcaller, pcalled, collect(ocaller.Name + '||' + type(l) + '||' + ocalled.Name) AS details, count(l) AS linkCount
+CREATE (pcaller)-[:References {IsEscalated: true, details: details, Count: linkCount}]->(pcalled);
+
+//Set aipLinkType property to escalated Links
+MATCH (pcaller:Object:APP_LABEL)-[l:References]->(pcalled:Object:APP_LABEL)
+WHERE pcaller.InternalType = 'POMProject'
+AND pcalled.InternalType = 'POMProject'
+UNWIND l.details AS linkTypes
+WITH l,  collect(DISTINCT split(linkTypes,'||')[1]) AS aipLinkType
+SET l.aipLinkType = aipLinkType;
