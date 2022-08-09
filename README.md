@@ -1,1 +1,1 @@
-# Anubex support
+# Pom.xml analyzer
